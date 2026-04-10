@@ -8,23 +8,36 @@ on:
 jobs:
   update-database:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
+      
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+      
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@v2
+      
       - name: Install dependencies
         run: |
           pip install supabase selenium beautifulsoup4
-
+      
       - name: Run scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           python weekly_scraper.py
+      
+      - name: Upload summary
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: update-summary
+          path: update_summary.txt
