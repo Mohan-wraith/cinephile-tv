@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install supabase selenium requests
+          pip install supabase selenium beautifulsoup4
 
       - name: Run scraper
         env:
