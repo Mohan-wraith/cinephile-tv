@@ -26,7 +26,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          pip install supabase selenium beautifulsoup4
+          pip install supabase selenium beautifulsoup4 requests lxml webdriver-manager
       
       - name: Run scraper
         env:
