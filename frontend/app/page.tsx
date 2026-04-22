@@ -275,7 +275,7 @@ export default function HomePage() {
   const toggleGenre = (g: string) => setSelectedGenres(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]);
 
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/top250').then(r => r.json()).then(data => {
+    fetch('https://cinephile-tv-production.up.railway.app').then(r => r.json()).then(data => {
       if (data.status === 'success') {
         const base: ShowWithPoster[] = data.data.map((s: Show) => ({ ...s, poster: null, posterLoaded: false }));
         setShows(base); setLoading(false);
