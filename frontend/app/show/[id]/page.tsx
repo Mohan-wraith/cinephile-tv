@@ -6,6 +6,12 @@ import { ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cartes
 import { Trophy, TrendingDown, Activity, Download, ArrowLeft, Globe, Star, Users, X, ExternalLink, Film, Clock, Calendar, ChevronLeft, ChevronRight, Share2, Copy, Check, BarChart2, Bookmark, BookmarkCheck, Plus } from 'lucide-react';
 import { useWatchlist } from '@/hooks/useWatchlist';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// API CONFIGURATION
+// ═══════════════════════════════════════════════════════════════════════════
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+
 // ─── Poster fetch with fallback (same as homepage) ──────────────────────────
 async function fetchPosterWithFallback(tconst: string, title: string): Promise<string | null> {
   try {
@@ -560,7 +566,7 @@ export default function ShowAnalytics({ params }: { params: Promise<{ id: string
 const fetchData = useCallback((mode: 'db' | 'live') => {
   if (mode === 'live') setIsScraping(true);
   
-  fetch(`http://127.0.0.1:8000/api/heatmap?id=${id}&mode=${mode}`)
+  fetch(`${API_URL}/api/heatmap?id=${id}&mode=${mode}`)
     .then(res => res.json())
     .then(data => {
       console.log('Backend response:', data);
@@ -600,7 +606,7 @@ useEffect(() => {
   // ── useEffect ──
   useEffect(() => {
     // Primary: fetch rating directly by tconst — no vote filter, no title ambiguity
-    fetch(`http://127.0.0.1:8000/api/show/${id}`)
+    fetch(`${API_URL}/api/show/${id}`)
       .then(r => r.json())
       .then(data => {
         if (data.status === 'success' && data.data?.averageRating) {
@@ -613,7 +619,7 @@ useEffect(() => {
       .then(tvmazeData => {
         setMetadata(tvmazeData);
       }).catch(() => {});
-    fetch(`http://127.0.0.1:8000/api/recommendations?id=${id}`)
+    fetch(`${API_URL}/api/recommendations?id=${id}`)
       .then(res => res.json()).then(data => { if (data.status === 'success') setRecs(data.data); }).catch(() => {});
     fetchData('db');
   }, [id]);
