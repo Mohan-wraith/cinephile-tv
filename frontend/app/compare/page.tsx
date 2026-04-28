@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trophy, X, Search, ArrowRight, BarChart2, Star, Users, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
-const API = 'http://127.0.0.1:8000';
+const API = '${API_URL}';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const ratingColor = (r: number) => {

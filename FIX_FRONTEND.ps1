@@ -1,93 +1,48 @@
-# ═══════════════════════════════════════════════════════════════════════════
-# CINEPHILE TV - WINDOWS FRONTEND API FIXER
-# ═══════════════════════════════════════════════════════════════════════════
-# Run this in PowerShell to fix ALL your frontend files
-# ═══════════════════════════════════════════════════════════════════════════
+Write-Host "FIXING FRONTEND FILES..."
 
-Write-Host "🔧 FIXING ALL FRONTEND FILES..." -ForegroundColor Cyan
-Write-Host "================================" -ForegroundColor Cyan
-Write-Host ""
-
-# Set your frontend directory
 $frontendDir = "C:\Users\SUB-ZERO\Downloads\MY PROJECTS\Cinephile-Fullstack\frontend"
 
 if (!(Test-Path $frontendDir)) {
-    Write-Host "❌ ERROR: Frontend directory not found!" -ForegroundColor Red
-    Write-Host "   Looking for: $frontendDir" -ForegroundColor Yellow
+    Write-Host "ERROR: Frontend directory not found!"
     exit
 }
 
-cd $frontendDir
+Set-Location $frontendDir
 
-# Find all relevant files
-$files = Get-ChildItem -Path "app" -Include *.tsx,*.ts,*.jsx,*.js -Recurse
+$files = Get-ChildItem -Path "app" -Include *.tsx,*.ts,*.js,*.jsx -Recurse
 
-Write-Host "Found $($files.Count) files to check..." -ForegroundColor Yellow
-Write-Host ""
-
-$fixedCount = 0
+Write-Host "Found $($files.Count) files"
 
 foreach ($file in $files) {
-    $content = Get-Content $file.FullName -Raw
+
+    $content = Get-Content -LiteralPath $file.FullName | Out-String
     $modified = $false
-    
+
     # Replace localhost URLs
-    if ($content -match '127\.0\.0\.1:8000|localhost:8000') {
-        $content = $content -replace 'http://127\.0\.0\.1:8000', '${API_URL}'
-        $content = $content -replace 'http://localhost:8000', '${API_URL}'
+    if ($content -match "localhost:8000|127\.0\.0\.1:8000") {
+        $content = $content -replace "http://localhost:8000", '${API_URL}'
+        $content = $content -replace "http://127.0.0.1:8000", '${API_URL}'
         $modified = $true
     }
-    
-    # Replace old const API declarations
-    if ($content -match "const API = ['`"].*['`"];") {
-        $content = $content -replace "const API = ['`"].*?['`"];", 'const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";'
+
+    # Add API_URL if missing
+    if ($content -match "fetch" -and $content -notmatch "API_URL") {
+        $apiLine = 'const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";'
+        $content = $apiLine + "`r`n" + $content
         $modified = $true
     }
-    
-    # Add API_URL if file uses fetch but doesn't have it
-    if ($content -match 'fetch.*api' -and $content -notmatch 'API_URL') {
-        # Find the last import line
-        $lines = $content -split "`r?`n"
-        $lastImportIndex = -1
-        for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match '^import ') {
-                $lastImportIndex = $i
-            }
-        }
-        
-        if ($lastImportIndex -ge 0) {
-            $lines = @(
-                $lines[0..$lastImportIndex]
-                ""
-                'const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";'
-                $lines[($lastImportIndex+1)..($lines.Count-1)]
-            )
-            $content = $lines -join "`n"
-            $modified = $true
-        }
-    }
-    
+
     if ($modified) {
-        Set-Content -Path $file.FullName -Value $content -NoNewline
-        Write-Host "✅ Fixed: $($file.Name)" -ForegroundColor Green
-        $fixedCount++
+        Set-Content -LiteralPath $file.FullName -Value $content
+        Write-Host "Fixed: $($file.FullName)"
     }
 }
 
 Write-Host ""
-Write-Host "════════════════════════════════" -ForegroundColor Cyan
-Write-Host "✅ DONE! Fixed $fixedCount files" -ForegroundColor Green
-Write-Host "════════════════════════════════" -ForegroundColor Cyan
+Write-Host "DONE"
 Write-Host ""
-Write-Host "📋 NEXT STEPS:" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "1. Commit and push to GitHub:" -ForegroundColor White
-Write-Host "   git add ." -ForegroundColor Gray
-Write-Host "   git commit -m `"fix: use Railway backend URL`"" -ForegroundColor Gray
-Write-Host "   git push" -ForegroundColor Gray
-Write-Host ""
-Write-Host "2. Vercel will auto-redeploy in 2-3 minutes" -ForegroundColor White
-Write-Host ""
-Write-Host "🎯 BACKEND:  https://cinephile-tv-production.up.railway.app" -ForegroundColor Cyan
-Write-Host "🎯 FRONTEND: https://cinephile-tv.vercel.app" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Run next:"
+Write-Host "git add ."
+Write-Host "git commit -m `"fix: API URL`""
+Write-Host "git pull origin main --rebase"
+Write-Host "git push"

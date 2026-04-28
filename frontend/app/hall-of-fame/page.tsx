@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trophy, Skull, TrendingDown, Zap, BarChart2 } from 'lucide-react';
 
-const API = 'http://127.0.0.1:8000';
+const API = '${API_URL}';
 
 const ratingColor = (r: number) => {
   if (!r) return '#282828';

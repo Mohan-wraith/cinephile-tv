@@ -9,7 +9,7 @@ import { useWatchlist } from '@/hooks/useWatchlist';
 // ═══════════════════════════════════════════════════════════════════════════
 // API CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "${API_URL}";
 
 
 // ─── Poster fetch with fallback (same as homepage) ──────────────────────────
@@ -1734,3 +1734,4 @@ useEffect(() => {
     </div>
   );
 }
+

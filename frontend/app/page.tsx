@@ -297,7 +297,7 @@ export default function HomePage() {
     if (!query.trim()) { setSearchResults([]); setSearchOpen(false); setSearchPosters({}); return; }
     setSearchLoading(true);
     debounceRef.current = setTimeout(() => {
-      fetch(`http://127.0.0.1:8000/api/search?q=${encodeURIComponent(query)}`).then(r => r.json()).then(data => {
+      fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`).then(r => r.json()).then(data => {
         if (data.status === 'success') {
             const results: Show[] = data.data.slice(0, 8);
             setSearchResults(results);
