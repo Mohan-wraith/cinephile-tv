@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { SlidersHorizontal, X, ChevronDown, RotateCcw, Trophy, BarChart2, Bookmark, Plus, Check } from 'lucide-react';
 import { useWatchlist } from '@/hooks/useWatchlist';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";
+
 interface Show {
   tconst: string;
   primaryTitle: string;
