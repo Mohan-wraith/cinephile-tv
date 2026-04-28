@@ -9,11 +9,7 @@ import { useWatchlist } from '@/hooks/useWatchlist';
 // ═══════════════════════════════════════════════════════════════════════════
 // API CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
-<<<<<<< HEAD
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "${API_URL}";
-=======
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
->>>>>>> 59eae50585698ea0f88d70bf6e551e2851cbf2fd
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";
 
 
 // ─── Poster fetch with fallback (same as homepage) ──────────────────────────
@@ -1738,7 +1734,3 @@ useEffect(() => {
     </div>
   );
 }
-<<<<<<< HEAD
-
-=======
->>>>>>> 59eae50585698ea0f88d70bf6e551e2851cbf2fd
