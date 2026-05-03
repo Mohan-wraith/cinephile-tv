@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trophy, X, Search, ArrowRight, BarChart2, Star, Users, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
-const API = '${API_URL}';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const ratingColor = (r: number) => {

@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trophy, Skull, TrendingDown, Zap, BarChart2 } from 'lucide-react';
 
-const API = '${API_URL}';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cinephile-tv-production.up.railway.app";
+
 
 const ratingColor = (r: number) => {
   if (!r) return '#282828';
