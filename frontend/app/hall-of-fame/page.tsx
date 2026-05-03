@@ -55,7 +55,7 @@ export default function HallOfFame() {
   useEffect(() => {
     fetch(`${API_URL}/api/hall-of-fame`)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => { setData(d.data); setLoading(false); })
       .catch(() => { setError(true); setLoading(false); });
   }, []);
 
