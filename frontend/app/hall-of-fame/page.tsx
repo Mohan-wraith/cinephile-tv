@@ -53,7 +53,7 @@ export default function HallOfFame() {
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/hall-of-fame`)
+    fetch(`${API_URL}/api/hall-of-fame`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => { setError(true); setLoading(false); });

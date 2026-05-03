@@ -61,7 +61,7 @@ function ShowSlot({ side, color, onSelect }: {
     timer.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}`);
+        const r = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(q)}`);
         const d = await r.json();
         setResults((d.data || []).slice(0, 6));
         setOpen(true);
@@ -74,7 +74,7 @@ function ShowSlot({ side, color, onSelect }: {
     setOpen(false);
     setQuery(show.primaryTitle);
     const [heatmapRes, poster] = await Promise.all([
-      fetch(`${API}/api/heatmap?id=${show.tconst}&mode=db`).then(r => r.json()),
+      fetch(`${API_URL}/api/heatmap?id=${show.tconst}&mode=db`).then(r => r.json()),
       fetchPosterFast(show.tconst, show.primaryTitle),
     ]);
     onSelect(show, heatmapRes.data || null, poster);
