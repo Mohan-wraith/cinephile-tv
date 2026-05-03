@@ -1,6 +1,6 @@
 """
-CINEPHILE TV BACKEND - COMPLETE FIX
-All endpoints working with proper Supabase queries
+CINEPHILE TV BACKEND - ALL ENDPOINTS FIXED
+Uses SQL functions to handle column name case sensitivity
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +34,7 @@ def read_root():
 @app.get("/api/top250")
 def get_top_250():
     try:
-        response = supabase.table('shows').select('*').gte('numVotes', 50000).order('averageRating', desc=True).limit(250).execute()
+        response = supabase.rpc('get_top_250').execute()
         return {"status": "success", "data": response.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -42,7 +42,6 @@ def get_top_250():
 @app.get("/api/search")
 def search_shows(q: str):
     try:
-        # Use the SQL function we created in Supabase
         response = supabase.rpc('search_shows_by_title', {'search_query': q}).execute()
         return {"status": "success", "data": response.data}
     except Exception as e:
@@ -51,10 +50,18 @@ def search_shows(q: str):
 @app.get("/api/show/{tconst}")
 def get_show(tconst: str):
     try:
-        response = supabase.table('shows').select('*').eq('tconst', tconst).limit(1).execute()
+        response = supabase.rpc('get_show_by_id', {'show_id': tconst}).execute()
         if not response.data:
             return {"status": "error", "message": "Show not found"}
         return {"status": "success", "data": response.data[0]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/recommendations")
+def get_recommendations(id: str):
+    try:
+        response = supabase.rpc('get_recommendations', {'show_id': id}).execute()
+        return {"status": "success", "data": response.data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -144,19 +151,6 @@ def get_heatmap(id: str, mode: str = "db"):
             if driver:
                 driver.quit()
 
-@app.get("/api/recommendations")
-def get_recommendations(id: str):
-    try:
-        show_response = supabase.table('shows').select('genres').eq('tconst', id).execute()
-        if not show_response.data or not show_response.data[0].get('genres'):
-            return {"status": "success", "data": []}
-        genres_str = show_response.data[0]['genres']
-        main_genre = genres_str.split(',')[0].strip()
-        response = supabase.table('shows').select('*').ilike('genres', f'%{main_genre}%').neq('tconst', id).order('numVotes', desc=True).limit(12).execute()
-        return {"status": "success", "data": response.data}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
@@ -174,7 +168,7 @@ def get_hall_of_fame():
                 worst_episodes.append({'tconst': item['tconst'], 'averageRating': item['averageRating'], 'numVotes': item['numVotes'], 'parentTconst': ep['parentTconst'], 'seasonNumber': ep['seasonNumber'], 'episodeNumber': ep['episodeNumber'], 'primaryTitle': ep['primaryTitle']})
         return {"status": "success", "bestEpisodes": best_episodes, "worstEpisodes": worst_episodes, "bestSeasons": [], "worstSeasons": [], "mostConsistent": []}
     except Exception as e:
-        return {"status": "success", "bestEpisodes": [], "worstEpisodes": [], "worstSeasons": [], "mostConsistent": []}
+        return {"status": "success", "bestEpisodes": [], "worstEpisodes": [], "bestSeasons": [], "worstSeasons": [], "mostConsistent": []}
 
 if __name__ == "__main__":
     import uvicorn
