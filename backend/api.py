@@ -1,5 +1,6 @@
 """
-CINEPHILE TV BACKEND - LOWERCASE COLUMN FIX
+CINEPHILE TV BACKEND - ALL ENDPOINTS FIXED
+Uses SQL functions to handle column name case sensitivity
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,11 +37,7 @@ def get_top_250():
         response = supabase.rpc('get_top_250').execute()
         return {"status": "success", "data": response.data}
     except Exception as e:
-        try:
-            response = supabase.table('shows').select('*').gte('numvotes', 50000).order('averagerating', desc=True).limit(250).execute()
-            return {"status": "success", "data": response.data}
-        except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/search")
 def search_shows(q: str):
@@ -48,11 +45,7 @@ def search_shows(q: str):
         response = supabase.rpc('search_shows_by_title', {'search_query': q}).execute()
         return {"status": "success", "data": response.data}
     except Exception as e:
-        try:
-            response = supabase.table('shows').select('*').ilike('primarytitle', f'%{q}%').order('numvotes', desc=True).limit(15).execute()
-            return {"status": "success", "data": response.data}
-        except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/show/{tconst}")
 def get_show(tconst: str):
@@ -62,13 +55,7 @@ def get_show(tconst: str):
             return {"status": "error", "message": "Show not found"}
         return {"status": "success", "data": response.data[0]}
     except Exception as e:
-        try:
-            response = supabase.table('shows').select('*').eq('tconst', tconst).limit(1).execute()
-            if not response.data:
-                return {"status": "error", "message": "Show not found"}
-            return {"status": "success", "data": response.data[0]}
-        except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/recommendations")
 def get_recommendations(id: str):
@@ -76,22 +63,13 @@ def get_recommendations(id: str):
         response = supabase.rpc('get_recommendations', {'show_id': id}).execute()
         return {"status": "success", "data": response.data}
     except Exception as e:
-        try:
-            show_response = supabase.table('shows').select('genres').eq('tconst', id).execute()
-            if not show_response.data or not show_response.data[0].get('genres'):
-                return {"status": "success", "data": []}
-            genres_str = show_response.data[0]['genres']
-            main_genre = genres_str.split(',')[0].strip()
-            response = supabase.table('shows').select('*').ilike('genres', f'%{main_genre}%').neq('tconst', id).order('numvotes', desc=True).limit(12).execute()
-            return {"status": "success", "data": response.data}
-        except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/heatmap")
 def get_heatmap(id: str, mode: str = "db"):
     if mode == "db":
         try:
-            ep_response = supabase.table('episodes').select('tconst, seasonnumber, episodenumber, primarytitle').eq('parenttconst', id).gt('seasonnumber', 0).order('seasonnumber').order('episodenumber').execute()
+            ep_response = supabase.table('episodes').select('tconst, seasonNumber, episodeNumber, primaryTitle').eq('parentTconst', id).gt('seasonNumber', 0).order('seasonNumber').order('episodeNumber').execute()
             if not ep_response.data:
                 return {"status": "error", "message": "No data found in database."}
             episodes = ep_response.data
@@ -100,11 +78,11 @@ def get_heatmap(id: str, mode: str = "db"):
             ratings_map = {r['tconst']: r for r in ratings_response.data}
             seasons_data = {}
             for ep in episodes:
-                season = str(int(ep['seasonnumber']))
+                season = str(int(ep['seasonNumber']))
                 if season not in seasons_data:
                     seasons_data[season] = []
                 rating_data = ratings_map.get(ep['tconst'], {})
-                seasons_data[season].append({"episode": int(ep['episodenumber']), "title": ep['primarytitle'] or f"Episode {ep['episodenumber']}", "rating": rating_data.get('averagerating', 0), "ep_tconst": ep['tconst']})
+                seasons_data[season].append({"episode": int(ep['episodeNumber']), "title": ep['primaryTitle'] or f"Episode {ep['episodeNumber']}", "rating": rating_data.get('averageRating', 0), "ep_tconst": ep['tconst']})
             return {"status": "success", "data": seasons_data, "source": "database"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -121,8 +99,8 @@ def get_heatmap(id: str, mode: str = "db"):
         try:
             driver = webdriver.Chrome(options=options)
             try:
-                response = supabase.table('episodes').select('seasonnumber').eq('parenttconst', id).order('seasonnumber', desc=True).limit(1).execute()
-                num_seasons = int(response.data[0]['seasonnumber']) if response.data else 10
+                response = supabase.table('episodes').select('seasonNumber').eq('parentTconst', id).order('seasonNumber', desc=True).limit(1).execute()
+                num_seasons = int(response.data[0]['seasonNumber']) if response.data else 10
             except:
                 num_seasons = 10
             num_seasons = min(num_seasons, 20)
@@ -176,76 +154,20 @@ def get_heatmap(id: str, mode: str = "db"):
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
-        # Get best episodes - USING LOWERCASE COLUMN NAMES
-        ratings_resp = supabase.table('ratings').select('*').gte('numvotes', 1000).order('averagerating', desc=True).limit(25).execute()
+        best_eps = supabase.table('ratings').select('*, episodes!inner(*)').gte('numVotes', 1000).order('averageRating', desc=True).limit(25).execute()
         best_episodes = []
-        
-        for r in ratings_resp.data:
-            try:
-                ep = supabase.table('episodes').select('*').eq('tconst', r['tconst']).limit(1).execute()
-                if not ep.data:
-                    continue
-                ep_data = ep.data[0]
-                show = supabase.table('shows').select('*').eq('tconst', ep_data.get('parenttconst')).limit(1).execute()
-                if not show.data:
-                    continue
-                show_data = show.data[0]
-                best_episodes.append({
-                    'tconst': r['tconst'],
-                    'averageRating': r.get('averagerating', 0),
-                    'numVotes': r.get('numvotes', 0),
-                    'showTconst': ep_data.get('parenttconst'),
-                    'seasonNumber': ep_data.get('seasonnumber', 0),
-                    'episodeNumber': ep_data.get('episodenumber', 0),
-                    'epTitle': ep_data.get('primarytitle', ''),
-                    'showTitle': show_data.get('primarytitle', ''),
-                    'startYear': show_data.get('startyear', ''),
-                    'showVotes': show_data.get('numvotes', 0)
-                })
-            except Exception as e:
-                print(f"Error processing episode {r.get('tconst')}: {e}")
-                continue
-        
-        # Get worst episodes - USING LOWERCASE COLUMN NAMES
-        worst_ratings_resp = supabase.table('ratings').select('*').gte('numvotes', 1000).order('averagerating', desc=False).limit(25).execute()
+        for item in best_eps.data:
+            if 'episodes' in item:
+                ep = item['episodes']
+                best_episodes.append({'tconst': item['tconst'], 'averageRating': item['averageRating'], 'numVotes': item['numVotes'], 'parentTconst': ep['parentTconst'], 'seasonNumber': ep['seasonNumber'], 'episodeNumber': ep['episodeNumber'], 'primaryTitle': ep['primaryTitle']})
+        worst_eps = supabase.table('ratings').select('*, episodes!inner(*)').gte('numVotes', 1000).order('averageRating', desc=False).limit(25).execute()
         worst_episodes = []
-        
-        for r in worst_ratings_resp.data:
-            try:
-                ep = supabase.table('episodes').select('*').eq('tconst', r['tconst']).limit(1).execute()
-                if not ep.data:
-                    continue
-                ep_data = ep.data[0]
-                show = supabase.table('shows').select('*').eq('tconst', ep_data.get('parenttconst')).limit(1).execute()
-                if not show.data:
-                    continue
-                show_data = show.data[0]
-                worst_episodes.append({
-                    'tconst': r['tconst'],
-                    'averageRating': r.get('averagerating', 0),
-                    'numVotes': r.get('numvotes', 0),
-                    'showTconst': ep_data.get('parenttconst'),
-                    'seasonNumber': ep_data.get('seasonnumber', 0),
-                    'episodeNumber': ep_data.get('episodenumber', 0),
-                    'epTitle': ep_data.get('primarytitle', ''),
-                    'showTitle': show_data.get('primarytitle', ''),
-                    'startYear': show_data.get('startyear', ''),
-                    'showVotes': show_data.get('numvotes', 0)
-                })
-            except Exception as e:
-                print(f"Error processing worst episode {r.get('tconst')}: {e}")
-                continue
-        
-        return {
-            "status": "success",
-            "bestEpisodes": best_episodes,
-            "worstEpisodes": worst_episodes,
-            "bestSeasons": [],
-            "worstSeasons": [],
-            "mostConsistent": []
-        }
+        for item in worst_eps.data:
+            if 'episodes' in item:
+                ep = item['episodes']
+                worst_episodes.append({'tconst': item['tconst'], 'averageRating': item['averageRating'], 'numVotes': item['numVotes'], 'parentTconst': ep['parentTconst'], 'seasonNumber': ep['seasonNumber'], 'episodeNumber': ep['episodeNumber'], 'primaryTitle': ep['primaryTitle']})
+        return {"status": "success", "bestEpisodes": best_episodes, "worstEpisodes": worst_episodes, "bestSeasons": [], "worstSeasons": [], "mostConsistent": []}
     except Exception as e:
-        print(f"Hall of fame error: {e}")
         return {"status": "success", "bestEpisodes": [], "worstEpisodes": [], "bestSeasons": [], "worstSeasons": [], "mostConsistent": []}
 
 if __name__ == "__main__":
