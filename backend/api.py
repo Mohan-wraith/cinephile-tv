@@ -176,15 +176,19 @@ def get_heatmap(id: str, mode: str = "db"):
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
-        response = supabase.rpc('get_hall_of_fame').execute()
-        data = response.data
+        best_eps    = supabase.rpc('get_best_episodes').execute().data or []
+        worst_eps   = supabase.rpc('get_worst_episodes').execute().data or []
+        best_seas   = supabase.rpc('get_best_seasons').execute().data or []
+        worst_seas  = supabase.rpc('get_worst_seasons').execute().data or []
+        consistent  = supabase.rpc('get_most_consistent').execute().data or []
+
         return {
             "status": "success",
-            "bestEpisodes":   data.get("bestEpisodes")   or [],
-            "worstEpisodes":  data.get("worstEpisodes")  or [],
-            "bestSeasons":    data.get("bestSeasons")    or [],
-            "worstSeasons":   data.get("worstSeasons")   or [],
-            "mostConsistent": data.get("mostConsistent") or [],
+            "bestEpisodes":   best_eps,
+            "worstEpisodes":  worst_eps,
+            "bestSeasons":    best_seas,
+            "worstSeasons":   worst_seas,
+            "mostConsistent": consistent,
         }
     except Exception as e:
         print(f"Hall of fame error: {e}")
