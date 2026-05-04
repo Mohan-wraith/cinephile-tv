@@ -176,80 +176,23 @@ def get_heatmap(id: str, mode: str = "db"):
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
-        # EXACT column names from your schema
-        # ratings: averageRating (camelCase), numvotes (lowercase)
-        # episodes: parentTconst, seasonNumber, episodeNumber, primaryTitle (all camelCase)
-        # shows: primaryTitle, startYear, numVotes (all camelCase)
-        
-        ratings_resp = supabase.table('ratings').select('*').gte('numvotes', 1000).order('averageRating', desc=True).limit(25).execute()
-        best_episodes = []
-        
-        for r in ratings_resp.data:
-            try:
-                ep = supabase.table('episodes').select('*').eq('tconst', r['tconst']).limit(1).execute()
-                if not ep.data:
-                    continue
-                ep_data = ep.data[0]
-                show = supabase.table('shows').select('*').eq('tconst', ep_data['parentTconst']).limit(1).execute()
-                if not show.data:
-                    continue
-                show_data = show.data[0]
-                best_episodes.append({
-                    'tconst': r['tconst'],
-                    'averageRating': r['averageRating'],
-                    'numVotes': r['numvotes'],
-                    'showTconst': ep_data['parentTconst'],
-                    'seasonNumber': ep_data['seasonNumber'],
-                    'episodeNumber': ep_data['episodeNumber'],
-                    'epTitle': ep_data['primaryTitle'],
-                    'showTitle': show_data['primaryTitle'],
-                    'startYear': show_data['startYear'],
-                    'showVotes': show_data['numVotes']
-                })
-            except Exception as e:
-                print(f"Error processing episode {r.get('tconst')}: {e}")
-                continue
-        
-        worst_ratings_resp = supabase.table('ratings').select('*').gte('numvotes', 1000).order('averageRating', desc=False).limit(25).execute()
-        worst_episodes = []
-        
-        for r in worst_ratings_resp.data:
-            try:
-                ep = supabase.table('episodes').select('*').eq('tconst', r['tconst']).limit(1).execute()
-                if not ep.data:
-                    continue
-                ep_data = ep.data[0]
-                show = supabase.table('shows').select('*').eq('tconst', ep_data['parentTconst']).limit(1).execute()
-                if not show.data:
-                    continue
-                show_data = show.data[0]
-                worst_episodes.append({
-                    'tconst': r['tconst'],
-                    'averageRating': r['averageRating'],
-                    'numVotes': r['numvotes'],
-                    'showTconst': ep_data['parentTconst'],
-                    'seasonNumber': ep_data['seasonNumber'],
-                    'episodeNumber': ep_data['episodeNumber'],
-                    'epTitle': ep_data['primaryTitle'],
-                    'showTitle': show_data['primaryTitle'],
-                    'startYear': show_data['startYear'],
-                    'showVotes': show_data['numVotes']
-                })
-            except Exception as e:
-                print(f"Error processing worst episode {r.get('tconst')}: {e}")
-                continue
-        
+        response = supabase.rpc('get_hall_of_fame').execute()
+        data = response.data
         return {
             "status": "success",
-            "bestEpisodes": best_episodes,
-            "worstEpisodes": worst_episodes,
-            "bestSeasons": [],
-            "worstSeasons": [],
-            "mostConsistent": []
+            "bestEpisodes":   data.get("bestEpisodes")   or [],
+            "worstEpisodes":  data.get("worstEpisodes")  or [],
+            "bestSeasons":    data.get("bestSeasons")    or [],
+            "worstSeasons":   data.get("worstSeasons")   or [],
+            "mostConsistent": data.get("mostConsistent") or [],
         }
     except Exception as e:
         print(f"Hall of fame error: {e}")
-        return {"status": "success", "bestEpisodes": [], "worstEpisodes": [], "bestSeasons": [], "worstSeasons": [], "mostConsistent": []}
+        return {
+            "status": "error", "message": str(e),
+            "bestEpisodes": [], "worstEpisodes": [],
+            "bestSeasons": [], "worstSeasons": [], "mostConsistent": []
+        }
 
 if __name__ == "__main__":
     import uvicorn
