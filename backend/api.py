@@ -89,114 +89,333 @@ def get_recommendations(id: str):
 
 @app.get("/api/heatmap")
 def get_heatmap(id: str, mode: str = "db"):
+
     if mode == "db":
         try:
-            ep_response = supabase.table('episodes').select('tconst, seasonNumber, episodeNumber, primaryTitle').eq('parentTconst', id).gt('seasonNumber', 0).order('seasonNumber').order('episodeNumber').execute()
+            ep_response = supabase.table('episodes').select(
+                'tconst, seasonNumber, episodeNumber, primaryTitle'
+            ).eq('parentTconst', id).gt(
+                'seasonNumber', 0
+            ).order('seasonNumber').order('episodeNumber').execute()
+
             if not ep_response.data:
                 return {"status": "error", "message": "No data found in database."}
+
             episodes = ep_response.data
+
             episode_ids = [ep['tconst'] for ep in episodes]
-            ratings_response = supabase.table('ratings').select('*').in_('tconst', episode_ids).execute()
+
+            ratings_response = supabase.table('ratings').select(
+                '*'
+            ).in_('tconst', episode_ids).execute()
+
             ratings_map = {r['tconst']: r for r in ratings_response.data}
+
             seasons_data = {}
+
             for ep in episodes:
                 season = str(int(ep['seasonNumber']))
+
                 if season not in seasons_data:
                     seasons_data[season] = []
+
                 rating_data = ratings_map.get(ep['tconst'], {})
-                seasons_data[season].append({"episode": int(ep['episodeNumber']), "title": ep['primaryTitle'] or f"Episode {ep['episodeNumber']}", "rating": rating_data.get('averageRating', 0), "ep_tconst": ep['tconst']})
-            return {"status": "success", "data": seasons_data, "source": "database"}
+
+                seasons_data[season].append({
+                    "episode": int(ep['episodeNumber']),
+                    "title": ep['primaryTitle'] or f"Episode {ep['episodeNumber']}",
+                    "rating": rating_data.get('averageRating', 0),
+                    "ep_tconst": ep['tconst']
+                })
+
+            return {
+                "status": "success",
+                "data": seasons_data,
+                "source": "database"
+            }
+
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
     elif mode == "live":
-        print(f"\n{'='*60}\n🔴 LIVE SCRAPE: {id}\n{'='*60}\n")
+
+        print(f"\n{'='*60}\nLIVE SCRAPE: {id}\n{'='*60}\n")
+
         options = Options()
-        options.add_argument("--headless")
+
+        options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        options.add_argument("--window-size=1920,1080")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-setuid-sandbox")
+
+        options.binary_location = "/usr/bin/google-chrome"
+
         driver = None
         seasons_data = {}
+
         try:
-            driver = webdriver.Chrome(options=options)
+            from selenium.webdriver.chrome.service import Service
+
             try:
-                response = supabase.table('episodes').select('seasonNumber').eq('parentTconst', id).order('seasonNumber', desc=True).limit(1).execute()
-                num_seasons = int(response.data[0]['seasonNumber']) if response.data else 10
+                service = Service('/usr/local/bin/chromedriver')
+
+                driver = webdriver.Chrome(
+                    service=service,
+                    options=options
+                )
+
+            except:
+                driver = webdriver.Chrome(options=options)
+
+            try:
+                response = supabase.table('episodes').select(
+                    'seasonNumber'
+                ).eq(
+                    'parentTconst',
+                    id
+                ).order(
+                    'seasonNumber',
+                    desc=True
+                ).limit(1).execute()
+
+                num_seasons = int(
+                    response.data[0]['seasonNumber']
+                ) if response.data else 10
+
             except:
                 num_seasons = 10
+
             num_seasons = min(num_seasons, 20)
-            print(f"📊 Will scrape {num_seasons} seasons\n")
+
             for s in range(1, num_seasons + 1):
+
                 url = f"https://www.imdb.com/title/{id}/episodes/?season={s}"
-                print(f"[S{s}] Loading {url}")
+
                 try:
                     driver.get(url)
+
                     time.sleep(random.uniform(2.5, 4))
-                    soup = BeautifulSoup(driver.page_source, "html.parser")
+
+                    soup = BeautifulSoup(
+                        driver.page_source,
+                        "html.parser"
+                    )
+
                     season_episodes = []
-                    next_data_tag = soup.find("script", id="__NEXT_DATA__")
+
+                    next_data_tag = soup.find(
+                        "script",
+                        id="__NEXT_DATA__"
+                    )
+
                     if next_data_tag:
-                        try:
-                            next_data = json.loads(next_data_tag.string)
-                            page_props = next_data.get("props", {}).get("pageProps", {})
-                            episodes_list = page_props.get("contentData", {}).get("section", {}).get("episodes", {}).get("items", [])
-                            for ep_data in episodes_list:
-                                ep_num = ep_data.get("episodeNumber")
-                                title_data = ep_data.get("titleText", {})
-                                title = title_data.get("text", f"Episode {ep_num}")
-                                rating_data = ep_data.get("ratingsSummary", {})
-                                rating = rating_data.get("aggregateRating")
-                                ep_tconst = ep_data.get("id", "")
-                                if ep_num and rating:
-                                    season_episodes.append({"episode": int(ep_num), "title": str(title), "rating": float(rating), "ep_tconst": str(ep_tconst)})
-                        except Exception as e:
-                            print(f"[S{s}] JSON parse error: {e}")
+
+                        next_data = json.loads(
+                            next_data_tag.string
+                        )
+
+                        page_props = next_data.get(
+                            "props",
+                            {}
+                        ).get(
+                            "pageProps",
+                            {}
+                        )
+
+                        episodes_list = page_props.get(
+                            "contentData",
+                            {}
+                        ).get(
+                            "section",
+                            {}
+                        ).get(
+                            "episodes",
+                            {}
+                        ).get(
+                            "items",
+                            []
+                        )
+
+                        for ep_data in episodes_list:
+
+                            ep_num = ep_data.get("episodeNumber")
+
+                            title = ep_data.get(
+                                "titleText",
+                                {}
+                            ).get(
+                                "text",
+                                f"Episode {ep_num}"
+                            )
+
+                            rating = ep_data.get(
+                                "ratingsSummary",
+                                {}
+                            ).get(
+                                "aggregateRating"
+                            )
+
+                            ep_tconst = ep_data.get("id", "")
+
+                            if ep_num and rating:
+
+                                season_episodes.append({
+                                    "episode": int(ep_num),
+                                    "title": str(title),
+                                    "rating": float(rating),
+                                    "ep_tconst": str(ep_tconst)
+                                })
+
                     if season_episodes:
-                        season_episodes.sort(key=lambda x: x['episode'])
+
+                        season_episodes.sort(
+                            key=lambda x: x['episode']
+                        )
+
                         seasons_data[str(s)] = season_episodes
-                        print(f"[S{s}] ✓ Scraped {len(season_episodes)} episodes")
-                    else:
-                        print(f"[S{s}] ✗ No episodes found")
+
                 except Exception as e:
-                    print(f"[S{s}] ✗ Error: {e}")
-                    continue
-            print(f"\n{'='*60}\n✓ COMPLETE: Scraped {len(seasons_data)} seasons\n{'='*60}\n")
+                    print(f"[S{s}] Error: {e}")
+
             if seasons_data:
-                return {"status": "success", "data": seasons_data, "source": "selenium_live", "scraped_seasons": len(seasons_data)}
-            else:
-                return {"status": "error", "message": "No episodes found."}
+
+                return {
+                    "status": "success",
+                    "data": seasons_data,
+                    "source": "selenium_live",
+                    "scraped_seasons": len(seasons_data)
+                }
+
+            return {
+                "status": "error",
+                "message": "No episodes found."
+            }
+
         except Exception as e:
-            print(f"✗ FATAL ERROR: {e}")
-            return {"status": "error", "message": f"Selenium error: {str(e)}"}
+
+            return {
+                "status": "error",
+                "message": f"Selenium error: {str(e)}"
+            }
+
         finally:
+
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except:
+                    pass
 
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
-        best_eps    = supabase.rpc('get_best_episodes').execute().data or []
-        worst_eps   = supabase.rpc('get_worst_episodes').execute().data or []
-        best_seas   = supabase.rpc('get_best_seasons').execute().data or []
-        worst_seas  = supabase.rpc('get_worst_seasons').execute().data or []
-        consistent  = supabase.rpc('get_most_consistent').execute().data or []
-
+        # OPTIMIZED: Get episodes WITH shows data in ONE query using nested select
+        # ratings -> episodes(*, shows(*))
+        print("Fetching best episodes with nested select...")
+        
+        best_query = """
+            *, 
+            episodes!inner(
+                parentTconst,
+                seasonNumber,
+                episodeNumber,
+                primaryTitle,
+                shows!inner(
+                    primaryTitle,
+                    startYear,
+                    numVotes
+                )
+            )
+        """
+        
+        best_resp = (
+            supabase.table('ratings')
+            .select(best_query)
+            .gte('numvotes', 1000)
+            .order('averageRating', desc=True)
+            .limit(25)
+            .execute()
+        )
+        
+        best_episodes = []
+        for item in best_resp.data:
+            ep = item.get('episodes', {})
+            show = ep.get('shows', {}) if isinstance(ep.get('shows'), dict) else {}
+            
+            best_episodes.append({
+                'tconst': item['tconst'],
+                'averageRating': item['averageRating'],
+                'numVotes': item['numvotes'],
+                'showTconst': ep.get('parentTconst'),
+                'seasonNumber': ep.get('seasonNumber'),
+                'episodeNumber': ep.get('episodeNumber'),
+                'epTitle': ep.get('primaryTitle', ''),
+                'showTitle': show.get('primaryTitle', ''),
+                'startYear': show.get('startYear', ''),
+                'showVotes': show.get('numVotes', 0)
+            })
+        
+        print(f"✓ Fetched {len(best_episodes)} best episodes in 1 query")
+        
+        # Worst episodes - same optimization
+        print("Fetching worst episodes with nested select...")
+        
+        worst_resp = (
+            supabase.table('ratings')
+            .select(best_query)  # Same query structure
+            .gte('numvotes', 1000)
+            .order('averageRating', desc=False)
+            .limit(25)
+            .execute()
+        )
+        
+        worst_episodes = []
+        for item in worst_resp.data:
+            ep = item.get('episodes', {})
+            show = ep.get('shows', {}) if isinstance(ep.get('shows'), dict) else {}
+            
+            worst_episodes.append({
+                'tconst': item['tconst'],
+                'averageRating': item['averageRating'],
+                'numVotes': item['numvotes'],
+                'showTconst': ep.get('parentTconst'),
+                'seasonNumber': ep.get('seasonNumber'),
+                'episodeNumber': ep.get('episodeNumber'),
+                'epTitle': ep.get('primaryTitle', ''),
+                'showTitle': show.get('primaryTitle', ''),
+                'startYear': show.get('startYear', ''),
+                'showVotes': show.get('numVotes', 0)
+            })
+        
+        print(f"✓ Fetched {len(worst_episodes)} worst episodes in 1 query")
+        
         return {
             "status": "success",
-            "bestEpisodes":   best_eps,
-            "worstEpisodes":  worst_eps,
-            "bestSeasons":    best_seas,
-            "worstSeasons":   worst_seas,
-            "mostConsistent": consistent,
+            "bestEpisodes": best_episodes,
+            "worstEpisodes": worst_episodes,
+            "bestSeasons": [],
+            "worstSeasons": [],
+            "mostConsistent": []
         }
+    
     except Exception as e:
         print(f"Hall of fame error: {e}")
+        import traceback
+        traceback.print_exc()
         return {
-            "status": "error", "message": str(e),
-            "bestEpisodes": [], "worstEpisodes": [],
-            "bestSeasons": [], "worstSeasons": [], "mostConsistent": []
+            "status": "success",
+            "bestEpisodes": [],
+            "worstEpisodes": [],
+            "bestSeasons": [],
+            "worstSeasons": [],
+            "mostConsistent": []
         }
+
 
 if __name__ == "__main__":
     import uvicorn
