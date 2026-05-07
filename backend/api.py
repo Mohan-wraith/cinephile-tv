@@ -8,6 +8,7 @@ from supabase import create_client, Client
 import json
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
 import time
 import random
@@ -25,6 +26,56 @@ app.add_middleware(
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_chrome_driver():
+    """
+    Create and configure Chrome WebDriver for Railway/production environment
+    """
+    options = Options()
+    
+    # Essential headless arguments
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
+    
+    # Performance and stability
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-setuid-sandbox")
+    options.add_argument("--disable-dev-tools")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--ignore-certificate-errors")
+    
+    # User agent to avoid detection
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # Memory optimization
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--disable-breakpad")
+    options.add_argument("--disable-client-side-phishing-detection")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-hang-monitor")
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--disable-prompt-on-repost")
+    options.add_argument("--disable-sync")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument("--no-first-run")
+    options.add_argument("--safebrowsing-disable-auto-update")
+    
+    # Try to create driver - let Selenium auto-detect Chrome
+    try:
+        # In Railway/production, Chrome is at standard location
+        driver = webdriver.Chrome(options=options)
+        print("✓ Chrome driver created successfully")
+        return driver
+    except Exception as e:
+        print(f"✗ Chrome driver creation failed: {e}")
+        raise
 
 @app.get("/")
 def read_root():
@@ -138,40 +189,16 @@ def get_heatmap(id: str, mode: str = "db"):
             return {"status": "error", "message": str(e)}
 
     elif mode == "live":
-
         print(f"\n{'='*60}\nLIVE SCRAPE: {id}\n{'='*60}\n")
-
-        options = Options()
-
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-software-rasterizer")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--window-size=1920,1080")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-setuid-sandbox")
-
-        options.binary_location = "/usr/bin/google-chrome"
 
         driver = None
         seasons_data = {}
 
         try:
-            from selenium.webdriver.chrome.service import Service
+            # Create Chrome driver using our helper function
+            driver = get_chrome_driver()
 
-            try:
-                service = Service('/usr/local/bin/chromedriver')
-
-                driver = webdriver.Chrome(
-                    service=service,
-                    options=options
-                )
-
-            except:
-                driver = webdriver.Chrome(options=options)
-
+            # Determine number of seasons to scrape
             try:
                 response = supabase.table('episodes').select(
                     'seasonNumber'
@@ -191,79 +218,37 @@ def get_heatmap(id: str, mode: str = "db"):
                 num_seasons = 10
 
             num_seasons = min(num_seasons, 20)
+            print(f"Scraping {num_seasons} seasons...")
 
             for s in range(1, num_seasons + 1):
-
                 url = f"https://www.imdb.com/title/{id}/episodes/?season={s}"
+                print(f"[Season {s}] Fetching: {url}")
 
                 try:
                     driver.get(url)
-
+                    
+                    # Wait for page to load
                     time.sleep(random.uniform(2.5, 4))
 
-                    soup = BeautifulSoup(
-                        driver.page_source,
-                        "html.parser"
-                    )
-
+                    soup = BeautifulSoup(driver.page_source, "html.parser")
                     season_episodes = []
 
-                    next_data_tag = soup.find(
-                        "script",
-                        id="__NEXT_DATA__"
-                    )
+                    # Find the __NEXT_DATA__ script tag
+                    next_data_tag = soup.find("script", id="__NEXT_DATA__")
 
                     if next_data_tag:
+                        next_data = json.loads(next_data_tag.string)
 
-                        next_data = json.loads(
-                            next_data_tag.string
-                        )
-
-                        page_props = next_data.get(
-                            "props",
-                            {}
-                        ).get(
-                            "pageProps",
-                            {}
-                        )
-
-                        episodes_list = page_props.get(
-                            "contentData",
-                            {}
-                        ).get(
-                            "section",
-                            {}
-                        ).get(
-                            "episodes",
-                            {}
-                        ).get(
-                            "items",
-                            []
-                        )
+                        page_props = next_data.get("props", {}).get("pageProps", {})
+                        episodes_list = page_props.get("contentData", {}).get("section", {}).get("episodes", {}).get("items", [])
 
                         for ep_data in episodes_list:
-
                             ep_num = ep_data.get("episodeNumber")
-
-                            title = ep_data.get(
-                                "titleText",
-                                {}
-                            ).get(
-                                "text",
-                                f"Episode {ep_num}"
-                            )
-
-                            rating = ep_data.get(
-                                "ratingsSummary",
-                                {}
-                            ).get(
-                                "aggregateRating"
-                            )
-
+                            title = ep_data.get("titleText", {}).get("text", f"Episode {ep_num}")
+                            rating = ep_data.get("ratingsSummary", {}).get("aggregateRating")
                             ep_tconst = ep_data.get("id", "")
 
                             if ep_num and rating:
-
                                 season_episodes.append({
                                     "episode": int(ep_num),
                                     "title": str(title),
@@ -272,18 +257,17 @@ def get_heatmap(id: str, mode: str = "db"):
                                 })
 
                     if season_episodes:
-
-                        season_episodes.sort(
-                            key=lambda x: x['episode']
-                        )
-
+                        season_episodes.sort(key=lambda x: x['episode'])
                         seasons_data[str(s)] = season_episodes
+                        print(f"[Season {s}] ✓ Found {len(season_episodes)} episodes")
+                    else:
+                        print(f"[Season {s}] ✗ No episodes found")
 
                 except Exception as e:
-                    print(f"[S{s}] Error: {e}")
+                    print(f"[Season {s}] Error: {e}")
+                    continue
 
             if seasons_data:
-
                 return {
                     "status": "success",
                     "data": seasons_data,
@@ -293,23 +277,26 @@ def get_heatmap(id: str, mode: str = "db"):
 
             return {
                 "status": "error",
-                "message": "No episodes found."
+                "message": "No episodes found during scraping."
             }
 
         except Exception as e:
-
+            print(f"Selenium error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
             return {
                 "status": "error",
-                "message": f"Selenium error: {str(e)}"
+                "message": f"Selenium error: {str(e)}. Try using 'db' mode instead."
             }
 
         finally:
-
             if driver:
                 try:
                     driver.quit()
-                except:
-                    pass
+                    print("✓ Chrome driver closed")
+                except Exception as e:
+                    print(f"Error closing driver: {e}")
 
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
