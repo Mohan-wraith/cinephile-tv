@@ -88,7 +88,7 @@ def get_top_250():
         return {"status": "success", "data": response.data}
     except Exception as e:
         try:
-            response = supabase.table('shows').select('*').gte('numVotes', 50000).order('averageRating', desc=True).limit(250).execute()
+            response = supabase.table('shows').select('*').gte('numvotes', 50000).order('averageRating', desc=True).limit(250).execute()
             return {"status": "success", "data": response.data}
         except Exception as e2:
             return {"status": "error", "message": str(e2)}
