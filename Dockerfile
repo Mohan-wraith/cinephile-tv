@@ -33,11 +33,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
     && apt-get update \
-    && apt-get install -y google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y ./google-chrome-stable_current_amd64.deb \
+    && rm google-chrome-stable_current_amd64.deb
 
 # Copy requirements first for better caching
 COPY backend/requirements.txt .
@@ -48,8 +47,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ .
 
-# Expose port (Railway will override this with $PORT)
+# Expose port
 EXPOSE 8000
 
-# Run the application
-CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start FastAPI app
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
