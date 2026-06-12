@@ -1,2 +1,8 @@
 backend/tv_shows.db 
 backend/tv_shows.db 
+backend/.venv/
+backend/__pycache__/
+backend/*.log
+backend/*.err
+.env.local
+backend/.env
