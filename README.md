@@ -356,7 +356,7 @@ Returns top 250 shows with minimum vote threshold.
 Full-text search with line-by-line matching.
 
 #### **get_recommendations(show_id TEXT)**
-Genre-based recommendation algorithm.
+Ranks title-specific recommendations by exact genre overlap, catalog-wide genre rarity, release-year proximity, and a Bayesian rating score. The function definition is maintained in `backend/sql/get_recommendations.sql`.
 
 #### **get_show_by_id(show_id TEXT)**
 Single show lookup with all metadata.

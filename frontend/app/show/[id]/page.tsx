@@ -605,6 +605,9 @@ useEffect(() => {
 
   // ── useEffect ──
   useEffect(() => {
+    let isCurrentShow = true;
+    setRecs([]);
+
     // Primary: fetch rating directly by tconst — no vote filter, no title ambiguity
     fetch(`${API_URL}/api/show/${id}`)
       .then(r => r.json())
@@ -620,8 +623,17 @@ useEffect(() => {
         setMetadata(tvmazeData);
       }).catch(() => {});
     fetch(`${API_URL}/api/recommendations?id=${id}`)
-      .then(res => res.json()).then(data => { if (data.status === 'success') setRecs(data.data); }).catch(() => {});
+      .then(res => {
+        if (!res.ok) throw new Error(`Recommendations request failed (${res.status})`);
+        return res.json();
+      })
+      .then(data => {
+        if (isCurrentShow) setRecs(data.status === 'success' && Array.isArray(data.data) ? data.data : []);
+      })
+      .catch(() => { if (isCurrentShow) setRecs([]); });
     fetchData('db');
+
+    return () => { isCurrentShow = false; };
   }, [id]);
 
   // ── maxEpisodes ──

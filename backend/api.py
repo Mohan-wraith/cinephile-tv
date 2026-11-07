@@ -5,8 +5,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
+import re
 from supabase import create_client, Client
 import json
+import httpx
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -186,6 +188,224 @@ def normalize_imdb_episode_items(items):
             episodes.append(episode)
     return episodes
 
+OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "trilogy")
+OMDB_URL = "https://www.omdbapi.com/"
+IMDB_TITLE_RE = re.compile(r"tt\d{7,}")
+
+def clean_value(value, default=None):
+    if value in (None, "", "N/A"):
+        return default
+    return value
+
+def parse_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+def parse_int(value, default=0):
+    try:
+        return int(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return default
+
+def runtime_minutes(value):
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group(0)) if match else 0
+
+def split_csv(value):
+    if not value or value == "N/A":
+        return []
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+def omdb_get(params):
+    try:
+        with httpx.Client(timeout=12, follow_redirects=True) as client:
+            response = client.get(OMDB_URL, params={**params, "apikey": OMDB_API_KEY})
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        return {"Response": "False", "Error": str(e)}
+
+def normalize_movie(data):
+    if not data or data.get("Response") == "False":
+        return None
+
+    imdb_id = clean_value(data.get("imdbID"))
+    title = clean_value(data.get("Title"))
+    if not imdb_id or not title:
+        return None
+
+    poster = clean_value(data.get("Poster"))
+    year = clean_value(data.get("Year"), "")
+    rating = parse_float(data.get("imdbRating"))
+    votes = parse_int(data.get("imdbVotes"))
+
+    return {
+        "tconst": imdb_id,
+        "imdbID": imdb_id,
+        "contentType": "movie",
+        "type": clean_value(data.get("Type"), "movie"),
+        "primaryTitle": title,
+        "title": title,
+        "startYear": str(year).split("-")[0] if year else "",
+        "year": year,
+        "rated": clean_value(data.get("Rated")),
+        "released": clean_value(data.get("Released")),
+        "runtime": clean_value(data.get("Runtime")),
+        "genres": clean_value(data.get("Genre"), ""),
+        "genreList": split_csv(data.get("Genre")),
+        "director": clean_value(data.get("Director")),
+        "writer": clean_value(data.get("Writer")),
+        "actors": clean_value(data.get("Actors")),
+        "plot": clean_value(data.get("Plot")),
+        "language": clean_value(data.get("Language")),
+        "country": clean_value(data.get("Country")),
+        "awards": clean_value(data.get("Awards")),
+        "poster": poster,
+        "averageRating": rating,
+        "imdbRating": rating,
+        "numVotes": votes,
+        "imdbVotes": clean_value(data.get("imdbVotes")),
+        "boxOffice": clean_value(data.get("BoxOffice")),
+        "production": clean_value(data.get("Production")),
+        "metascore": clean_value(data.get("Metascore")),
+        "ratings": data.get("Ratings", []),
+    }
+
+def fetch_movie_detail(imdb_id):
+    return normalize_movie(omdb_get({"i": imdb_id, "plot": "short", "type": "movie"}))
+
+def imdb_more_like_this_ids(imdb_id):
+    try:
+        with httpx.Client(timeout=14, follow_redirects=True) as client:
+            response = client.get(
+                f"https://www.imdb.com/title/{imdb_id}/",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            response.raise_for_status()
+            html = response.text
+    except Exception:
+        return []
+
+    ids = []
+    lower = html.lower()
+    anchors = [
+        lower.find("morelikethis"),
+        lower.find("more like this"),
+        lower.find("recommend"),
+        lower.find("similar"),
+    ]
+
+    for anchor in [a for a in anchors if a >= 0]:
+        segment = html[anchor:anchor + 300000]
+        for match in IMDB_TITLE_RE.findall(segment):
+            if match != imdb_id and match not in ids:
+                ids.append(match)
+            if len(ids) >= 18:
+                return ids
+
+    return ids
+
+MOVIE_GENRE_SEARCHES = {
+    "Action": ["Mad Max Fury Road", "John Wick", "Mission Impossible", "The Dark Knight", "Heat"],
+    "Adventure": ["Dune", "Lord of the Rings", "Indiana Jones", "Avatar", "Gladiator"],
+    "Animation": ["Spider-Verse", "Toy Story", "How to Train Your Dragon", "WALL-E", "Coco"],
+    "Biography": ["Oppenheimer", "The Social Network", "A Beautiful Mind", "The Imitation Game", "Ford v Ferrari"],
+    "Comedy": ["The Grand Budapest Hotel", "Superbad", "The Big Lebowski", "Groundhog Day", "Knives Out"],
+    "Crime": ["The Departed", "Goodfellas", "Se7en", "Zodiac", "Prisoners"],
+    "Drama": ["The Shawshank Redemption", "Forrest Gump", "The Prestige", "Whiplash", "The Social Network"],
+    "Fantasy": ["Harry Potter", "Lord of the Rings", "Pan's Labyrinth", "Stardust", "The Green Knight"],
+    "Horror": ["Get Out", "Hereditary", "The Conjuring", "A Quiet Place", "The Babadook"],
+    "Mystery": ["Knives Out", "Zodiac", "Prisoners", "Gone Girl", "The Girl with the Dragon Tattoo"],
+    "Romance": ["La La Land", "Before Sunrise", "Eternal Sunshine", "Pride and Prejudice", "Titanic"],
+    "Sci-Fi": ["Interstellar", "The Matrix", "Arrival", "Blade Runner 2049", "Tenet", "Minority Report"],
+    "Thriller": ["Shutter Island", "Gone Girl", "Nightcrawler", "Prisoners", "Memento"],
+}
+
+MOVIE_CREATOR_SEARCHES = {
+    "Christopher Nolan": ["Interstellar", "Tenet", "Memento", "The Prestige", "The Dark Knight"],
+    "Denis Villeneuve": ["Arrival", "Blade Runner 2049", "Dune", "Sicario", "Prisoners"],
+    "David Fincher": ["Gone Girl", "Zodiac", "Se7en", "Fight Club", "The Social Network"],
+    "Martin Scorsese": ["The Departed", "Shutter Island", "Goodfellas", "The Wolf of Wall Street", "Casino"],
+    "Quentin Tarantino": ["Pulp Fiction", "Django Unchained", "Kill Bill", "Inglourious Basterds", "Reservoir Dogs"],
+    "Steven Spielberg": ["Jurassic Park", "Saving Private Ryan", "Minority Report", "Catch Me If You Can", "Raiders of the Lost Ark"],
+    "Leonardo DiCaprio": ["Shutter Island", "The Departed", "The Wolf of Wall Street", "Django Unchained", "Catch Me If You Can"],
+    "Christian Bale": ["The Dark Knight", "The Prestige", "American Psycho", "Ford v Ferrari", "The Big Short"],
+    "Tom Hardy": ["Mad Max Fury Road", "The Dark Knight Rises", "Warrior", "Legend", "Dunkirk"],
+    "Ryan Gosling": ["Blade Runner 2049", "Drive", "La La Land", "The Nice Guys", "First Man"],
+}
+
+def score_movie_similarity(source, candidate):
+    source_genres = set(source.get("genreList") or split_csv(source.get("genres")))
+    candidate_genres = set(candidate.get("genreList") or split_csv(candidate.get("genres")))
+    overlap = source_genres & candidate_genres
+    union = source_genres | candidate_genres
+    if not overlap:
+        return 0
+
+    score = (len(overlap) / max(1, len(union))) * 70
+
+    source_year = parse_int(source.get("startYear"))
+    candidate_year = parse_int(candidate.get("startYear"))
+    if source_year and candidate_year:
+        distance = abs(source_year - candidate_year)
+        score += max(0, 18 - min(distance, 18))
+
+    source_rating = parse_float(source.get("averageRating"))
+    candidate_rating = parse_float(candidate.get("averageRating"))
+    if source_rating and candidate_rating:
+        score += max(0, 8 - abs(source_rating - candidate_rating) * 2)
+
+    votes = parse_int(candidate.get("numVotes"))
+    if votes >= 250000:
+        score += 6
+    elif votes >= 50000:
+        score += 3
+
+    source_directors = set(split_csv(source.get("director")))
+    candidate_directors = set(split_csv(candidate.get("director")))
+    if source_directors and source_directors & candidate_directors:
+        score += 40
+
+    source_actors = set(split_csv(source.get("actors"))[:4])
+    candidate_actors = set(split_csv(candidate.get("actors"))[:4])
+    score += len(source_actors & candidate_actors) * 7
+
+    return score
+
+def fallback_movie_candidates(source):
+    queries = []
+    for creator in split_csv(source.get("director"))[:2] + split_csv(source.get("actors"))[:3]:
+        queries.extend(MOVIE_CREATOR_SEARCHES.get(creator, []))
+
+    for genre in source.get("genreList", [])[:3]:
+        queries.extend(MOVIE_GENRE_SEARCHES.get(genre, []))
+
+    title_words = [
+        word for word in re.findall(r"[A-Za-z0-9]+", source.get("title", ""))
+        if len(word) > 3 and word.lower() not in {"movie", "film", "part", "chapter"}
+    ]
+    queries.extend(title_words[:2])
+
+    candidates = {}
+    seen_queries = []
+    for query in queries:
+        if query and query not in seen_queries:
+            seen_queries.append(query)
+
+    for query in seen_queries[:16]:
+        result = omdb_get({"s": query, "type": "movie"})
+        for item in result.get("Search", [])[:4]:
+            imdb_id = item.get("imdbID")
+            if not imdb_id or imdb_id == source.get("imdbID") or imdb_id in candidates:
+                continue
+            detail = fetch_movie_detail(imdb_id)
+            if detail and runtime_minutes(detail.get("runtime")) >= 60:
+                candidates[imdb_id] = detail
+
+    return list(candidates.values())
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Cinephile TV API Engine. All systems go."}
@@ -214,6 +434,86 @@ def search_shows(q: str):
         except Exception as e2:
             return {"status": "error", "message": str(e2)}
 
+@app.get("/api/movie/search")
+def search_movies(q: str):
+    if not q or len(q.strip()) < 2:
+        return {"status": "success", "data": []}
+
+    result = omdb_get({"s": q.strip(), "type": "movie"})
+    if result.get("Response") == "False":
+        return {"status": "success", "data": []}
+
+    movies = []
+    for item in result.get("Search", [])[:8]:
+        imdb_id = item.get("imdbID")
+        detail = fetch_movie_detail(imdb_id) if imdb_id else None
+        if detail:
+            movies.append(detail)
+        elif imdb_id:
+            movies.append({
+                "tconst": imdb_id,
+                "imdbID": imdb_id,
+                "contentType": "movie",
+                "type": "movie",
+                "primaryTitle": item.get("Title", ""),
+                "title": item.get("Title", ""),
+                "startYear": str(item.get("Year", "")).split("-")[0],
+                "year": item.get("Year", ""),
+                "genres": "",
+                "genreList": [],
+                "averageRating": 0,
+                "imdbRating": 0,
+                "numVotes": 0,
+                "poster": clean_value(item.get("Poster")),
+                "boxOffice": None,
+            })
+
+    return {"status": "success", "data": movies}
+
+@app.get("/api/movie/{imdb_id}")
+def get_movie(imdb_id: str):
+    movie = fetch_movie_detail(imdb_id)
+    if not movie:
+        return {"status": "error", "message": "Movie not found"}
+    return {"status": "success", "data": movie}
+
+@app.get("/api/movie/recommendations")
+def get_movie_recommendations(id: str):
+    source = fetch_movie_detail(id)
+    if not source:
+        return {"status": "success", "data": []}
+
+    candidates = {}
+    for rec_id in imdb_more_like_this_ids(id):
+        detail = fetch_movie_detail(rec_id)
+        if detail and detail.get("type") == "movie":
+            candidates[detail["imdbID"]] = detail
+        if len(candidates) >= 18:
+            break
+
+    if len(candidates) < 8:
+        for detail in fallback_movie_candidates(source):
+            candidates.setdefault(detail["imdbID"], detail)
+
+    scored = []
+    for candidate in candidates.values():
+        if candidate.get("imdbID") == id:
+            continue
+        score = score_movie_similarity(source, candidate)
+        if score > 0:
+            scored.append((score, candidate))
+
+    scored.sort(
+        key=lambda item: (
+            item[0],
+            parse_float(item[1].get("averageRating")),
+            parse_int(item[1].get("numVotes")),
+        ),
+        reverse=True,
+    )
+
+    return {"status": "success", "data": [item[1] for item in scored[:12]]}
+
 @app.get("/api/show/{tconst}")
 def get_show(tconst: str):
     try:
@@ -233,19 +533,13 @@ def get_show(tconst: str):
 @app.get("/api/recommendations")
 def get_recommendations(id: str):
     try:
-        response = supabase.rpc('get_recommendations', {'show_id': id}).execute()
-        return {"status": "success", "data": response.data}
+        response = supabase.rpc(
+            'get_recommendations',
+            {'show_id': id},
+        ).execute()
+        return {"status": "success", "data": response.data or []}
     except Exception as e:
-        try:
-            show_response = supabase.table('shows').select('genres').eq('tconst', id).execute()
-            if not show_response.data or not show_response.data[0].get('genres'):
-                return {"status": "success", "data": []}
-            genres_str = show_response.data[0]['genres']
-            main_genre = genres_str.split(',')[0].strip()
-            response = supabase.table('shows').select('*').ilike('genres', f'%{main_genre}%').neq('tconst', id).order('numVotes', desc=True).limit(12).execute()
-            return {"status": "success", "data": response.data}
-        except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/heatmap")
 def get_heatmap(id: str, mode: str = "db"):

@@ -15,6 +15,11 @@ interface Show {
   numVotes: number;
   genres: string;
   averageRating: number;
+  contentType?: 'show' | 'movie';
+  type?: string;
+  poster?: string | null;
+  boxOffice?: string | null;
+  runtime?: string | null;
 }
 interface ShowWithPoster extends Show {
   poster: string | null;
@@ -161,7 +166,10 @@ function ShowCard({ show, rank }: { show: ShowWithPoster; rank: number }) {
 }
 
 function SearchResult({ show, poster, onClick }: { show: Show; poster: string | null | undefined; onClick: () => void }) {
+  const isMovie = show.contentType === 'movie' || show.type === 'movie';
   const firstGenre = show.genres?.split(',')[0]?.trim() || '';
+  const href = isMovie ? `/movie/${show.tconst}` : `/show/${show.tconst}`;
+  const mediaLabel = isMovie ? 'Movie' : 'TV Series';
   const ratingColor = !show.averageRating ? '#555'
     : show.averageRating >= 9 ? '#006400'
     : show.averageRating >= 8 ? '#4ade80'
@@ -169,14 +177,14 @@ function SearchResult({ show, poster, onClick }: { show: Show; poster: string | 
     : '#DC143C';
 
   return (
-    <Link href={`/show/${show.tconst}`} onClick={onClick}
+    <Link href={href} onClick={onClick}
           className="flex items-center gap-3.5 px-4 py-3 transition-colors group hover:bg-white/4 relative">
       {/* Poster thumbnail */}
       <div className="w-10 h-14 rounded-lg overflow-hidden shrink-0 bg-[#1a1a1a] border border-white/5">
         {poster
           ? <img src={poster} alt={show.primaryTitle} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           : poster === null
-            ? <div className="w-full h-full flex items-center justify-center"><span className="text-[#333] text-lg">📺</span></div>
+            ? <div className="w-full h-full flex items-center justify-center"><span className="text-[#333] text-lg">{isMovie ? '🎬' : '📺'}</span></div>
             : <div className="w-full h-full bg-[#1a1a1a] animate-pulse" /> /* undefined = still loading */
         }
       </div>
@@ -186,9 +194,15 @@ function SearchResult({ show, poster, onClick }: { show: Show; poster: string | 
         <p className="text-white font-bold text-sm truncate group-hover:text-yellow-400 transition-colors leading-tight">{show.primaryTitle}</p>
         <div className="flex items-center gap-2 mt-1">
           <span className="text-[#555] text-xs">{show.startYear}</span>
+          <span className="text-[#333] text-xs">·</span>
+          <span className="text-[#555] text-xs">{mediaLabel}</span>
           {firstGenre && <>
             <span className="text-[#333] text-xs">·</span>
             <span className="text-[#555] text-xs">{firstGenre}</span>
+          </>}
+          {isMovie && show.boxOffice && <>
+            <span className="text-[#333] text-xs">·</span>
+            <span className="text-[#777] text-xs">{show.boxOffice}</span>
           </>}
         </div>
         {/* Mini rating bar */}
@@ -299,14 +313,28 @@ export default function HomePage() {
     if (!query.trim()) { setSearchResults([]); setSearchOpen(false); setSearchPosters({}); return; }
     setSearchLoading(true);
     debounceRef.current = setTimeout(() => {
-      fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`).then(r => r.json()).then(data => {
-        if (data.status === 'success') {
-            const results: Show[] = data.data.slice(0, 8);
+      Promise.all([
+        fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+        fetch(`${API_URL}/api/movie/search?q=${encodeURIComponent(query)}`).then(r => r.json()).catch(() => ({ status: 'error', data: [] })),
+      ]).then(([showData, movieData]) => {
+        const showResults: Show[] = showData.status === 'success'
+          ? showData.data.slice(0, 5).map((s: Show) => ({ ...s, contentType: 'show' as const }))
+          : [];
+        const movieResults: Show[] = movieData.status === 'success'
+          ? movieData.data.slice(0, 5).map((m: Show) => ({ ...m, contentType: 'movie' as const }))
+          : [];
+        const results: Show[] = [...showResults, ...movieResults].slice(0, 10);
+
+        if (results.length > 0) {
             setSearchResults(results);
             setSearchOpen(true);
             setSearchPosters({});
             // Race all 3 poster sources in parallel per show — first non-null wins
             results.forEach(async (show: Show) => {
+              if (show.contentType === 'movie') {
+                setSearchPosters(prev => ({ ...prev, [show.tconst]: show.poster ?? null }));
+                return;
+              }
               const tryGet = async (url: string, extract: (d: any) => string | null) => {
                 try {
                   const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -335,7 +363,10 @@ export default function HomePage() {
               const poster = byId ?? byTitle ?? byOmdb ?? null;
               setSearchPosters(prev => ({ ...prev, [show.tconst]: poster }));
             });
-          }
+        } else {
+          setSearchResults([]);
+          setSearchOpen(false);
+        }
         setSearchLoading(false);
       }).catch(() => setSearchLoading(false));
     }, 300);
@@ -379,7 +410,7 @@ export default function HomePage() {
             <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all duration-200 ${searchOpen || query ? 'border-white/15 bg-[#111]' : 'border-white/8 bg-[#0d0d0d]'}`}>
               <svg className="w-4 h-4 text-[#555] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               <input type="text" value={query} onChange={e => setQuery(e.target.value)} onFocus={() => { if (searchResults.length > 0) setSearchOpen(true); }}
-                placeholder="Search shows — Breaking Bad, Arcane..." className="flex-1 bg-transparent text-white text-sm placeholder-[#444] outline-none" />
+                placeholder="Search shows or movies — Panchayat, Inception..." className="flex-1 bg-transparent text-white text-sm placeholder-[#444] outline-none" />
               {searchLoading && <div className="w-4 h-4 border-2 border-[#333] border-t-white/50 rounded-full animate-spin shrink-0" />}
               {query && !searchLoading && <button onClick={() => { setQuery(''); setSearchResults([]); setSearchOpen(false); }} className="text-[#444] hover:text-white transition-colors text-lg leading-none">×</button>}
             </div>
@@ -388,10 +419,10 @@ export default function HomePage() {
                    style={{ background: '#0e0e0e', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 32px 64px rgba(0,0,0,0.9)' }}>
                 <div className="px-4 py-2.5 border-b border-white/5 flex items-center justify-between">
                   <span className="text-[10px] font-black tracking-[3px] text-[#333] uppercase">Results</span>
-                  <span className="text-[10px] text-[#333]">{searchResults.length} shows</span>
+                  <span className="text-[10px] text-[#333]">{searchResults.length} results</span>
                 </div>
                 <div className="py-1.5">
-                  {searchResults.map(show => <SearchResult key={show.tconst} show={show} poster={searchPosters[show.tconst]} onClick={() => { setQuery(''); setSearchOpen(false); setSearchPosters({}); }} />)}
+                  {searchResults.map(show => <SearchResult key={`${show.contentType || 'show'}-${show.tconst}`} show={show} poster={show.poster ?? searchPosters[show.tconst]} onClick={() => { setQuery(''); setSearchOpen(false); setSearchPosters({}); }} />)}
                 </div>
                 <div className="px-4 py-2.5 border-t border-white/5">
                   <p className="text-[#333] text-xs">Top {searchResults.length} matches · click to explore</p>
