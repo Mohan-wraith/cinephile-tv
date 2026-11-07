@@ -2,18 +2,21 @@
 CINEPHILE TV BACKEND - EXACT COLUMN NAMES FROM SCHEMA
 """
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from pathlib import Path
 import re
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 import json
 import httpx
+import threading
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
-import time
 import random
 
 app = FastAPI(title="Cinephile TV API")
@@ -56,6 +59,20 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     )
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Hall of Fame aggregates are deliberately run in Postgres over the full
+# episode catalog, so give that RPC a longer client timeout. The SQL function
+# itself applies a bounded 15-second statement timeout.
+hall_of_fame_supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    options=ClientOptions(postgrest_client_timeout=20),
+)
+
+_HALL_OF_FAME_CACHE_SECONDS = 6 * 60 * 60
+_hall_of_fame_cache = None
+_hall_of_fame_cache_until = 0.0
+_hall_of_fame_cache_lock = threading.Lock()
 
 def get_chrome_driver():
     """
@@ -691,107 +708,47 @@ def get_heatmap(id: str, mode: str = "db"):
 @app.get("/api/hall-of-fame")
 def get_hall_of_fame():
     try:
-        # OPTIMIZED: Get episodes WITH shows data in ONE query using nested select
-        # ratings -> episodes(*, shows(*))
-        print("Fetching best episodes with nested select...")
-        
-        best_query = """
-            *, 
-            episodes!inner(
-                parentTconst,
-                seasonNumber,
-                episodeNumber,
-                primaryTitle,
-                shows!inner(
-                    primaryTitle,
-                    startYear,
-                    numVotes
-                )
-            )
-        """
-        
-        best_resp = (
-            supabase.table('ratings')
-            .select(best_query)
-            .gte('numvotes', 1000)
-            .order('averageRating', desc=True)
-            .limit(25)
-            .execute()
-        )
-        
-        best_episodes = []
-        for item in best_resp.data:
-            ep = item.get('episodes', {})
-            show = ep.get('shows', {}) if isinstance(ep.get('shows'), dict) else {}
-            
-            best_episodes.append({
-                'tconst': item['tconst'],
-                'averageRating': item['averageRating'],
-                'numVotes': item['numvotes'],
-                'showTconst': ep.get('parentTconst'),
-                'seasonNumber': ep.get('seasonNumber'),
-                'episodeNumber': ep.get('episodeNumber'),
-                'epTitle': ep.get('primaryTitle', ''),
-                'showTitle': show.get('primaryTitle', ''),
-                'startYear': show.get('startYear', ''),
-                'showVotes': show.get('numVotes', 0)
-            })
-        
-        print(f"✓ Fetched {len(best_episodes)} best episodes in 1 query")
-        
-        # Worst episodes - same optimization
-        print("Fetching worst episodes with nested select...")
-        
-        worst_resp = (
-            supabase.table('ratings')
-            .select(best_query)  # Same query structure
-            .gte('numvotes', 1000)
-            .order('averageRating', desc=False)
-            .limit(25)
-            .execute()
-        )
-        
-        worst_episodes = []
-        for item in worst_resp.data:
-            ep = item.get('episodes', {})
-            show = ep.get('shows', {}) if isinstance(ep.get('shows'), dict) else {}
-            
-            worst_episodes.append({
-                'tconst': item['tconst'],
-                'averageRating': item['averageRating'],
-                'numVotes': item['numvotes'],
-                'showTconst': ep.get('parentTconst'),
-                'seasonNumber': ep.get('seasonNumber'),
-                'episodeNumber': ep.get('episodeNumber'),
-                'epTitle': ep.get('primaryTitle', ''),
-                'showTitle': show.get('primaryTitle', ''),
-                'startYear': show.get('startYear', ''),
-                'showVotes': show.get('numVotes', 0)
-            })
-        
-        print(f"✓ Fetched {len(worst_episodes)} worst episodes in 1 query")
-        
-        return {
-            "status": "success",
-            "bestEpisodes": best_episodes,
-            "worstEpisodes": worst_episodes,
-            "bestSeasons": [],
-            "worstSeasons": [],
-            "mostConsistent": []
-        }
-    
+        global _hall_of_fame_cache, _hall_of_fame_cache_until
+
+        now = time.monotonic()
+        if _hall_of_fame_cache is not None and now < _hall_of_fame_cache_until:
+            return {'status': 'success', **_hall_of_fame_cache}
+
+        # Prevent simultaneous first requests from each starting the same
+        # expensive catalog-wide aggregation.
+        with _hall_of_fame_cache_lock:
+            now = time.monotonic()
+            if _hall_of_fame_cache is not None and now < _hall_of_fame_cache_until:
+                return {'status': 'success', **_hall_of_fame_cache}
+
+            response = hall_of_fame_supabase.rpc('get_hall_of_fame', {}).execute()
+            data = response.data
+            if not isinstance(data, dict):
+                raise ValueError('get_hall_of_fame must return a JSON object')
+
+            result = {key: data.get(key, []) for key in (
+                'bestEpisodes', 'worstEpisodes', 'bestSeasons',
+                'worstSeasons', 'mostConsistent'
+            )}
+            if any(not isinstance(items, list) for items in result.values()):
+                raise ValueError('get_hall_of_fame returned an invalid list')
+
+            _hall_of_fame_cache = result
+            _hall_of_fame_cache_until = time.monotonic() + _HALL_OF_FAME_CACHE_SECONDS
+            return {'status': 'success', **result}
+
     except Exception as e:
-        print(f"Hall of fame error: {e}")
+        print(f"Hall of Fame query failed: {e}")
         import traceback
         traceback.print_exc()
-        return {
-            "status": "success",
-            "bestEpisodes": [],
-            "worstEpisodes": [],
-            "bestSeasons": [],
-            "worstSeasons": [],
-            "mostConsistent": []
-        }
+        return JSONResponse(
+            status_code=502,
+            content={
+                'status': 'error',
+                'message': 'Could not load Hall of Fame records. Check the '
+                           'backend logs for the database error.'
+            }
+        )
 
 
 if __name__ == "__main__":
